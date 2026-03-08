@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import { runSolver, importExcel } from '../api/client';
 
+var RUN_COLORS = ['#4a9eff', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb923c'];
+
 export const useProjectStore = create((set, get) => ({
   projectName: 'New Project',
   wellName: '',
-  dirty: false,  // true when inputs changed since last run
+  dirty: false,
 
-  // Input sections
   wellpath: [{ md: 0, inc: 0, azi: 0 }, { md: 10000, inc: 0, azi: 0 }],
   casings: [{ type: 'Surface', od: 13.375, id: 12.415, sd: 5000, hd: 0 }],
   hole: [{ md: 10000, dia: 8.5, ff: 0.25 }],
@@ -28,7 +29,6 @@ export const useProjectStore = create((set, get) => ({
 
   excelPath: '',
 
-  // Setters — all mark dirty
   setWellpath: (data) => set({ wellpath: data, dirty: true }),
   setCasings: (data) => set({ casings: data, dirty: true }),
   setHole: (data) => set({ hole: data, dirty: true }),
@@ -42,10 +42,8 @@ export const useProjectStore = create((set, get) => ({
   setExcelPath: (path) => set({ excelPath: path }),
   clearDirty: () => set({ dirty: false }),
 
-  // Load from imported Excel data — populates ALL sections
   loadFromImport: (data) => {
     const updates = { dirty: false };
-
     if (data.wellpath) {
       updates.wellpath = data.wellpath.md.map((md, i) => ({
         md, inc: data.wellpath.inclination[i] || 0, azi: 0,
@@ -96,7 +94,6 @@ export const useProjectStore = create((set, get) => ({
         mudIndex: data.realtime.mud_index,
       };
     }
-
     set(updates);
   },
 }));
@@ -106,8 +103,33 @@ export const useSolverStore = create((set, get) => ({
   status: 'idle',
   progress: 0,
   results: null,
-  history: [],
+  history: [],       // [{id, label, color, params, scalars, profiles, timestamp}]
+  runCounter: 0,
   error: null,
+
+  // Comparison state
+  compareOn: false,
+  selectedRuns: [],   // array of run IDs to overlay
+
+  setCompareOn: (on) => set({ compareOn: on }),
+
+  toggleRunSelection: (runId) => set((s) => {
+    const idx = s.selectedRuns.indexOf(runId);
+    if (idx >= 0) {
+      return { selectedRuns: s.selectedRuns.filter((id) => id !== runId) };
+    }
+    if (s.selectedRuns.length >= 4) return {};
+    return { selectedRuns: [...s.selectedRuns, runId] };
+  }),
+
+  renameRun: (runId, newLabel) => set((s) => ({
+    history: s.history.map((h) => h.id === runId ? { ...h, label: newLabel } : h),
+  })),
+
+  deleteRun: (runId) => set((s) => ({
+    history: s.history.filter((h) => h.id !== runId),
+    selectedRuns: s.selectedRuns.filter((id) => id !== runId),
+  })),
 
   run: async () => {
     set({ status: 'running', progress: 10, error: null });
@@ -116,7 +138,6 @@ export const useSolverStore = create((set, get) => ({
       const params = {
         excel_path: project.excelPath,
         time_step_index: 0,
-        // Sim parameters
         flow_rate: project.simParams.flowRate,
         rpm: project.simParams.rpm,
         sbp: project.simParams.sbp,
@@ -124,7 +145,6 @@ export const useSolverStore = create((set, get) => ({
         bit_depth: project.simParams.bitDepth,
         inlet_temp: project.simParams.inletTemp,
         mud_index: project.simParams.mudIndex,
-        // Geometry overrides from UI tables
         wellpath: project.wellpath,
         casings: project.casings,
         hole: project.hole,
@@ -139,11 +159,29 @@ export const useSolverStore = create((set, get) => ({
 
       if (response.success) {
         useProjectStore.getState().clearDirty();
+        const newId = get().runCounter + 1;
+        const paramLabel = 'Q=' + project.simParams.flowRate +
+          ', MW=' + project.simParams.mudWeight +
+          ', RPM=' + project.simParams.rpm;
+        const runEntry = {
+          ...response,
+          id: newId,
+          label: 'Run ' + newId,
+          color: RUN_COLORS[(newId - 1) % RUN_COLORS.length],
+          paramLabel: paramLabel,
+          params: { ...project.simParams },
+          timestamp: new Date().toISOString(),
+        };
+
         set((s) => ({
           status: 'complete',
           progress: 100,
           results: response,
-          history: [...s.history, { ...response, timestamp: new Date().toISOString() }],
+          runCounter: newId,
+          history: [...s.history, runEntry],
+          selectedRuns: [...s.selectedRuns.filter((id) =>
+            s.history.some((h) => h.id === id)
+          ), newId].slice(-4),
         }));
       } else {
         set({ status: 'error', error: response.error, progress: 0 });

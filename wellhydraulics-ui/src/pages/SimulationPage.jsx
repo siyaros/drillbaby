@@ -228,15 +228,74 @@ export default function SimulationPage() {
           </div>
         )}
 
-        {/* Run history */}
+        {/* Run history with comparison table */}
         {history.length > 0 && (
           <div style={{ background: C.bg2, borderRadius: 8, border: '1px solid ' + C.border, padding: 16, marginTop: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.t3, marginBottom: 8 }}>RUN HISTORY</div>
-            {history.map(function (h, i) {
-              return <div key={i} style={{ fontSize: 10, color: C.t1, padding: '4px 0', borderBottom: '1px solid ' + C.border + '10' }}>
-                Run {i + 1}: SPP={h.scalars.SPP ? h.scalars.SPP.toFixed(0) : '--'} BHP={h.scalars.BHP ? h.scalars.BHP.toFixed(0) : '--'} ECD={h.scalars.ECD ? h.scalars.ECD.toFixed(2) : '--'}
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.t3, marginBottom: 12 }}>RUN HISTORY</div>
+            {history.map(function (h) {
+              return <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                borderBottom: '1px solid ' + C.border + '10' }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: h.color, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: h.color, fontWeight: 700 }}>{h.label}</div>
+                  <div style={{ fontSize: 8, color: C.t0 }}>{h.paramLabel}</div>
+                </div>
+                <div style={{ fontSize: 9, color: C.t1 }}>
+                  SPP={h.scalars.SPP ? h.scalars.SPP.toFixed(0) : '--'} BHP={h.scalars.BHP ? h.scalars.BHP.toFixed(0) : '--'}
+                </div>
               </div>;
             })}
+          </div>
+        )}
+
+        {/* Comparison table */}
+        {history.length >= 2 && (
+          <div style={{ background: C.bg2, borderRadius: 8, border: '1px solid ' + C.border, padding: 16, marginTop: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.t3, marginBottom: 12 }}>COMPARISON TABLE</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead><tr style={{ background: C.bg1 }}>
+                  <th style={{ textAlign: 'left', color: C.t0, padding: '6px 8px', borderBottom: '1px solid ' + C.border }}>Parameter</th>
+                  {history.map(function (h) {
+                    return <th key={h.id} style={{ textAlign: 'right', color: h.color, padding: '6px 8px',
+                      borderBottom: '1px solid ' + C.border, fontWeight: 700 }}>{h.label}</th>;
+                  })}
+                  {history.length === 2 && <th style={{ textAlign: 'right', color: C.amber, padding: '6px 8px',
+                    borderBottom: '1px solid ' + C.border, fontWeight: 700 }}>Delta</th>}
+                </tr></thead>
+                <tbody>
+                  {[
+                    { key: 'SPP', label: 'SPP (psi)', dec: 0 },
+                    { key: 'BHP', label: 'BHP (psi)', dec: 0 },
+                    { key: 'ECD', label: 'ECD (ppg)', dec: 3 },
+                    { key: 'BHT', label: 'BHT (F)', dec: 1 },
+                    { key: 'TotalAnFric', label: 'Ann Friction (psi)', dec: 1 },
+                    { key: 'TotalDSFric', label: 'DS Friction (psi)', dec: 1 },
+                    { key: 'BitLoss', label: 'Bit Loss (psi)', dec: 0 },
+                  ].map(function (m) {
+                    return <tr key={m.key}>
+                      <td style={{ color: C.t1, padding: '5px 8px', borderBottom: '1px solid ' + C.border + '10' }}>{m.label}</td>
+                      {history.map(function (h) {
+                        var v = h.scalars ? h.scalars[m.key] : null;
+                        return <td key={h.id} style={{ textAlign: 'right', color: h.color, padding: '5px 8px',
+                          borderBottom: '1px solid ' + C.border + '10', fontWeight: 600 }}>
+                          {v != null ? v.toFixed(m.dec) : '--'}</td>;
+                      })}
+                      {history.length === 2 && (function () {
+                        var v1 = history[0].scalars ? history[0].scalars[m.key] : null;
+                        var v2 = history[1].scalars ? history[1].scalars[m.key] : null;
+                        if (v1 == null || v2 == null) return <td style={{ textAlign: 'right', color: C.t0, padding: '5px 8px' }}>--</td>;
+                        var d = v2 - v1;
+                        var sign = d >= 0 ? '+' : '';
+                        return <td style={{ textAlign: 'right', color: d >= 0 ? C.green : C.red, padding: '5px 8px',
+                          borderBottom: '1px solid ' + C.border + '10', fontWeight: 700 }}>
+                          {sign}{d.toFixed(m.dec)}</td>;
+                      })()}
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
