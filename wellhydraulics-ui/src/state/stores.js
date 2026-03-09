@@ -193,3 +193,120 @@ export const useSolverStore = create((set, get) => ({
 
   clear: () => set({ status: 'idle', results: null, progress: 0, error: null }),
 }));
+
+
+// ── Simulate Store: persistent across page navigation ─────────────
+
+var MAX_SIM_HISTORY = 300;
+var _ws = null;  // WebSocket lives outside React
+
+export const useSimulateStore = create((set, get) => ({
+  connected: false,
+  running: false,
+  step: 0,
+  cycleTime: 0,
+  error: null,
+  gaugeMode: true,
+  history: [],        // [{step, time, SPP, BHP, ECD, BHT, AnFric, flow_rate, sbp, rpm}]
+  liveParams: {
+    flow_rate: 500, rpm: 0, sbp: 1, mud_weight: 8.35, inlet_temp: 90,
+  },
+  chartVis: { SPP: true, BHP: true, ECD: true, BHT: true, flow_rate: true, sbp: true, rpm: false, AnFric: false },
+
+  setGaugeMode: (v) => set({ gaugeMode: v }),
+  toggleChart: (key) => set((s) => {
+    var nv = { ...s.chartVis }; nv[key] = !nv[key]; return { chartVis: nv };
+  }),
+
+  // Initialize live params from project
+  initParams: () => {
+    var sp = useProjectStore.getState().simParams;
+    set({ liveParams: {
+      flow_rate: sp.flowRate || 500, rpm: sp.rpm || 0, sbp: sp.sbp || 1,
+      mud_weight: sp.mudWeight || 8.35, inlet_temp: sp.inletTemp || 90,
+    }});
+  },
+
+  updateParam: (key, value) => {
+    var num = parseFloat(value); if (isNaN(num)) return;
+    set((s) => ({ liveParams: { ...s.liveParams, [key]: num } }));
+    // Send to server
+    if (_ws && _ws.readyState === 1) {
+      var msg = { cmd: 'update' }; msg[key] = num;
+      _ws.send(JSON.stringify(msg));
+    }
+  },
+
+  connect: () => {
+    if (_ws && _ws.readyState <= 1) return; // already open or connecting
+    var excelPath = useProjectStore.getState().excelPath;
+    if (!excelPath) { set({ error: 'No Excel file loaded' }); return; }
+
+    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = protocol + '//' + window.location.host + '/ws/simulate';
+    var ws = new WebSocket(wsUrl);
+
+    ws.onopen = function () {
+      set({ connected: true, error: null });
+      var lp = get().liveParams;
+      ws.send(JSON.stringify({
+        cmd: 'init', excel_path: excelPath,
+        flow_rate: lp.flow_rate, rpm: lp.rpm, sbp: lp.sbp,
+        mud_weight: lp.mud_weight, inlet_temp: lp.inlet_temp,
+      }));
+    };
+
+    ws.onmessage = function (e) {
+      var msg = JSON.parse(e.data);
+      if (msg.type === 'result') {
+        set((s) => {
+          var nh = s.history.concat([{
+            step: msg.step, time: msg.time,
+            SPP: msg.scalars.SPP, BHP: msg.scalars.BHP, ECD: msg.scalars.ECD,
+            BHT: msg.scalars.BHT, AnFric: msg.scalars.TotalAnFric,
+            flow_rate: msg.params.flow_rate, sbp: msg.params.sbp, rpm: msg.params.rpm,
+          }]);
+          if (nh.length > MAX_SIM_HISTORY) nh = nh.slice(nh.length - MAX_SIM_HISTORY);
+          return { step: msg.step, cycleTime: msg.cycle_time, history: nh };
+        });
+      } else if (msg.type === 'status') {
+        if (msg.running != null) set({ running: msg.running });
+      } else if (msg.type === 'error') {
+        set({ error: msg.message });
+      }
+    };
+
+    ws.onclose = function () { set({ connected: false, running: false }); _ws = null; };
+    ws.onerror = function () { set({ error: 'WebSocket failed', connected: false }); };
+    _ws = ws;
+  },
+
+  start: () => {
+    var state = get();
+    if (!state.connected) {
+      get().connect();
+      setTimeout(function () {
+        if (_ws && _ws.readyState === 1) _ws.send(JSON.stringify({ cmd: 'start', interval: 1.0 }));
+      }, 800);
+    } else if (_ws && _ws.readyState === 1) {
+      _ws.send(JSON.stringify({ cmd: 'start', interval: 1.0 }));
+    }
+    set({ running: true });
+  },
+
+  pause: () => {
+    if (_ws && _ws.readyState === 1) _ws.send(JSON.stringify({ cmd: 'pause' }));
+    set({ running: false });
+  },
+
+  stop: () => {
+    if (_ws && _ws.readyState === 1) _ws.send(JSON.stringify({ cmd: 'stop' }));
+    set({ running: false, step: 0, history: [] });
+  },
+
+  disconnect: () => {
+    if (_ws) { _ws.close(); _ws = null; }
+    set({ connected: false, running: false });
+  },
+}));
+

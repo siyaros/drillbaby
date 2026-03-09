@@ -5,6 +5,7 @@ import { healthCheck } from './api/client';
 import { KPI, AlarmBadge } from './components/shared/index.jsx';
 import Dashboard from './pages/Dashboard';
 import SimulationPage from './pages/SimulationPage';
+import SimulatePage from './pages/SimulatePage';
 import { WellDataPage, SurfaceEquipPage, FluidPage, DrillstringPage, SettingsPage } from './pages/DataPages';
 
 var PAGES = [
@@ -26,7 +27,7 @@ function fmt(v, dec) {
 export default function App() {
   var stPage = useState('dash');
   var page = stPage[0], setPage = stPage[1];
-  var stMode = useState('monitor');
+  var stMode = useState('Plan');
   var mode = stMode[0], setMode = stMode[1];
   var stConn = useState('checking');
   var connected = stConn[0], setConnected = stConn[1];
@@ -47,6 +48,7 @@ export default function App() {
   }, []);
 
   function renderPage() {
+    if (page === 'dash' && mode === 'Simulate') return <SimulatePage />;
     switch (page) {
       case 'dash': return <Dashboard />;
       case 'well': return <WellDataPage />;
@@ -156,8 +158,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* KPI BAR */}
-        <div style={{
+        {/* KPI BAR — hide in Simulate mode (SimulatePage has its own) */}
+        {mode !== 'Simulate' && <div style={{
           display: 'flex', gap: 8, padding: '10px 16px', borderBottom: '1px solid ' + C.border,
           background: C.bg1, overflowX: 'auto', flexShrink: 0,
         }}>
@@ -168,7 +170,7 @@ export default function App() {
           <KPI label="DS Friction" value={fmt(sc.TotalDSFric, 0)} unit="psi" color={C.purple} min={0} max={20000} />
           <KPI label="An Friction" value={fmt(sc.TotalAnFric, 0)} unit="psi" color={C.pink} min={0} max={1000} />
           <KPI label="BHT" value={fmt(sc.BHT, 0)} unit="F" color={C.orange} min={70} max={350} />
-        </div>
+        </div>}
 
         {/* PAGE HEADER (non-dashboard) */}
         {!isDash && (

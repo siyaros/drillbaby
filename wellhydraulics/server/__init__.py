@@ -324,6 +324,171 @@ async def import_excel(file: UploadFile = File(...)):
         return {"success": False, "error": str(e)}
 
 
+# ── WebSocket: Continuous Simulation ───────────────────────────────
+
+import asyncio
+import time as _time
+import copy
+
+try:
+    from fastapi import WebSocket, WebSocketDisconnect
+except ImportError:
+    pass
+
+# Shared state for the simulation loop
+_sim_state = {
+    "running": False,
+    "inp": None,           # ModelInput baseline (loaded from Excel)
+    "params": {            # Live-adjustable parameters
+        "flow_rate": 500,
+        "rpm": 0,
+        "sbp": 1,
+        "mud_weight": 8.35,
+        "inlet_temp": 90,
+    },
+    "interval": 1.0,       # seconds between cycles
+    "step": 0,
+}
+
+
+@app.websocket("/ws/simulate")
+async def ws_simulate(ws: WebSocket):
+    """WebSocket for continuous simulation.
+
+    Client sends JSON commands:
+      {"cmd": "init", "excel_path": "...", overrides...}  — load baseline
+      {"cmd": "start"}                                     — begin loop
+      {"cmd": "pause"}                                     — pause loop
+      {"cmd": "stop"}                                      — stop and reset
+      {"cmd": "update", "flow_rate": 700, ...}             — change params live
+
+    Server pushes JSON results each cycle:
+      {"type": "result", "step": N, "time": T, "scalars": {...}, "profiles": [...]}
+      {"type": "status", "running": bool, "step": N}
+      {"type": "error", "message": "..."}
+    """
+    await ws.accept()
+    logger.info("Simulate WebSocket connected")
+
+    try:
+        while True:
+            if _sim_state["running"] and _sim_state["inp"] is not None:
+                # Run one solver cycle
+                t0 = _time.time()
+                try:
+                    # Deep copy the input so we don't mutate the baseline
+                    inp = copy.deepcopy(_sim_state["inp"])
+                    rt = inp.realtime[0]
+
+                    # Apply live parameters
+                    p = _sim_state["params"]
+                    rt.Q = p.get("flow_rate", rt.Q)
+                    rt.RPM = p.get("rpm", rt.RPM)
+                    rt.SBP = p.get("sbp", rt.SBP)
+                    rt.density_ref = p.get("mud_weight", rt.density_ref)
+                    rt.T_inlet = p.get("inlet_temp", rt.T_inlet)
+
+                    result = run_from_input(inp, time_step_index=0)
+                    data = _result_to_dict(result)
+
+                    _sim_state["step"] += 1
+                    elapsed = _time.time() - t0
+
+                    await ws.send_json({
+                        "type": "result",
+                        "step": _sim_state["step"],
+                        "time": _sim_state["step"] * _sim_state["interval"],
+                        "cycle_time": round(elapsed, 3),
+                        "scalars": data["scalars"],
+                        "profiles": data["profiles"],
+                        "params": dict(_sim_state["params"]),
+                    })
+
+                except Exception as e:
+                    await ws.send_json({
+                        "type": "error",
+                        "message": str(e),
+                        "step": _sim_state["step"],
+                    })
+
+                # Wait for next cycle, but check for messages in between
+                wait_until = _time.time() + _sim_state["interval"]
+                while _time.time() < wait_until:
+                    try:
+                        msg = await asyncio.wait_for(ws.receive_json(), timeout=0.1)
+                        await _handle_sim_command(ws, msg)
+                    except asyncio.TimeoutError:
+                        pass
+                    except WebSocketDisconnect:
+                        raise
+            else:
+                # Not running — just wait for commands
+                try:
+                    msg = await asyncio.wait_for(ws.receive_json(), timeout=0.5)
+                    await _handle_sim_command(ws, msg)
+                except asyncio.TimeoutError:
+                    pass
+
+    except WebSocketDisconnect:
+        _sim_state["running"] = False
+        logger.info("Simulate WebSocket disconnected")
+    except Exception as e:
+        _sim_state["running"] = False
+        logger.error("Simulate WS error: %s", e)
+
+
+async def _handle_sim_command(ws: WebSocket, msg: dict):
+    """Handle a command from the simulate WebSocket client."""
+    cmd = msg.get("cmd", "")
+
+    if cmd == "init":
+        # Load baseline from Excel
+        excel_path = msg.get("excel_path", "")
+        if not excel_path or not Path(excel_path).exists():
+            await ws.send_json({"type": "error", "message": f"File not found: {excel_path}"})
+            return
+        try:
+            _sim_state["inp"] = read_input_excel(excel_path)
+            # Set initial params from the Excel realtime row
+            rt = _sim_state["inp"].realtime[0]
+            _sim_state["params"] = {
+                "flow_rate": msg.get("flow_rate", rt.Q),
+                "rpm": msg.get("rpm", rt.RPM),
+                "sbp": msg.get("sbp", rt.SBP),
+                "mud_weight": msg.get("mud_weight", rt.density_ref),
+                "inlet_temp": msg.get("inlet_temp", rt.T_inlet),
+            }
+            _sim_state["step"] = 0
+            await ws.send_json({"type": "status", "message": "Initialized", "running": False, "step": 0})
+        except Exception as e:
+            await ws.send_json({"type": "error", "message": str(e)})
+
+    elif cmd == "start":
+        _sim_state["running"] = True
+        _sim_state["interval"] = msg.get("interval", 2.0)
+        await ws.send_json({"type": "status", "message": "Started", "running": True, "step": _sim_state["step"]})
+
+    elif cmd == "pause":
+        _sim_state["running"] = False
+        await ws.send_json({"type": "status", "message": "Paused", "running": False, "step": _sim_state["step"]})
+
+    elif cmd == "stop":
+        _sim_state["running"] = False
+        _sim_state["step"] = 0
+        await ws.send_json({"type": "status", "message": "Stopped", "running": False, "step": 0})
+
+    elif cmd == "update":
+        # Update live parameters
+        for key in ["flow_rate", "rpm", "sbp", "mud_weight", "inlet_temp"]:
+            if key in msg:
+                _sim_state["params"][key] = float(msg[key])
+        await ws.send_json({"type": "status", "message": "Updated", "running": _sim_state["running"],
+                            "params": dict(_sim_state["params"])})
+
+    else:
+        await ws.send_json({"type": "error", "message": f"Unknown command: {cmd}"})
+
+
 # ── Server entry point ─────────────────────────────────────────────
 
 def main():
