@@ -6,6 +6,7 @@ import { KPI, AlarmBadge } from './components/shared/index.jsx';
 import Dashboard from './pages/Dashboard';
 import SimulationPage from './pages/SimulationPage';
 import SimulatePage from './pages/SimulatePage';
+import ControlPage from './pages/ControlPage';
 import { WellDataPage, SurfaceEquipPage, FluidPage, DrillstringPage, SettingsPage } from './pages/DataPages';
 
 var PAGES = [
@@ -49,6 +50,7 @@ export default function App() {
 
   function renderPage() {
     if (page === 'dash' && mode === 'Simulate') return <SimulatePage />;
+    if (page === 'dash' && mode === 'Control') return <ControlPage />;
     switch (page) {
       case 'dash': return <Dashboard />;
       case 'well': return <WellDataPage />;
