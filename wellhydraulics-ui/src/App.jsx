@@ -80,18 +80,15 @@ export default function App() {
         display: 'flex', flexDirection: 'column', paddingTop: 12, gap: 2, flexShrink: 0,
         transition: 'width 0.2s ease', overflow: 'hidden',
       }}>
-        {/* Hamburger + Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px', marginBottom: 12 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 8, background: C.blue + '18', border: '1px solid ' + C.blue + '30',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            fontSize: 14, color: C.blue, fontWeight: 900, cursor: 'pointer',
-          }} onClick={function () { setNavOpen(!navOpen); }}>
-            {navOpen ? 'X' : 'H'}
-          </div>
+        {/* Logo + Brand */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px', marginBottom: 12, cursor: 'pointer' }}
+          onClick={function () { setNavOpen(!navOpen); }}>
+          <img src="/logo.png" alt="NextEnergie" style={{
+            width: 34, height: 34, borderRadius: 8, objectFit: 'cover', flexShrink: 0,
+          }} />
           {navOpen && <div style={{ whiteSpace: 'nowrap' }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.t3 }}>WellHydraulics</div>
-            <div style={{ fontSize: 8, color: C.t0 }}>Drilling Platform</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.t3 }}>DrillBaby</div>
+            <div style={{ fontSize: 8, color: C.t0 }}>by NextEnergie</div>
           </div>}
         </div>
 
@@ -132,8 +129,8 @@ export default function App() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: C.t3 }}>WellHydraulics</div>
-              <div style={{ fontSize: 9, color: C.t0 }}>Phase 1 - Hydraulics Platform</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.t3 }}>DrillBaby</div>
+              <div style={{ fontSize: 9, color: C.t0 }}>Autonomous MPD Platform</div>
             </div>
             <div style={{ display: 'flex', gap: 2, background: C.bg, borderRadius: 6, padding: 2, border: '1px solid ' + C.border }}>
               {modes.map(function (m) {

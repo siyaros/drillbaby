@@ -1,5 +1,5 @@
 /**
- * WellHydraulics API client.
+ * DrillBaby API client.
  * All communication with the Python backend goes through here.
  */
 
